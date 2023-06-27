@@ -239,13 +239,14 @@ def set_naming_from_document_naming_rule(doc):
 	if doc.doctype in IGNORED_DOCTYPES:
 		return
 
-	# ignore_ddl if naming is not yet bootstrapped
-	for d in frappe.get_all(
+	document_naming_rules = frappe.cache_manager.get_doctype_map(
 		"Document Naming Rule",
-		dict(document_type=doc.doctype, disabled=0),
+		doc.doctype,
+		filters={"document_type": doc.doctype, "disabled": 0},
 		order_by="priority desc",
-		ignore_ddl=True,
-	):
+	)
+
+	for d in document_naming_rules:
 		frappe.get_cached_doc("Document Naming Rule", d.name).apply(doc)
 		if doc.name:
 			break
@@ -303,6 +304,7 @@ def parse_naming_series(
 	"""
 
 	name = ""
+	_sentinel = object()
 	if isinstance(parts, str):
 		parts = parts.split(".")
 
@@ -335,10 +337,8 @@ def parse_naming_series(
 			part = str(today)
 		elif e == "FY":
 			part = frappe.defaults.get_user_default("fiscal_year")
-		elif e.startswith("{") and doc:
+		elif doc and (e.startswith("{") or doc.get(e, _sentinel) is not _sentinel):
 			e = e.replace("{", "").replace("}", "")
-			part = doc.get(e)
-		elif doc and doc.get(e):
 			part = doc.get(e)
 		else:
 			part = e
@@ -553,9 +553,7 @@ def _format_autoname(autoname, doc):
 
 	def get_param_value_for_match(match):
 		param = match.group()
-		# trim braces
-		trimmed_param = param[1:-1]
-		return parse_naming_series([trimmed_param], doc=doc)
+		return parse_naming_series([param[1:-1]], doc=doc)
 
 	# Replace braced params with their parsed value
 	name = BRACED_PARAMS_PATTERN.sub(get_param_value_for_match, autoname_value)
